@@ -4,13 +4,13 @@ import { Snackbar, Button, Switch } from '@material-ui/core';
 import Select from 'react-select';
 import MuiAlert from '@material-ui/lab/Alert';
 import { makeStyles } from '@material-ui/core/styles';
-import { getEntries, getCategories } from './services';
+import { getEntries } from './services';
 import Loader from '../../components/Loader';
 
 import TableList from './components/TableList';
 import { Content } from './styledComponents';
 import Input from '../../components/Input';
-import { filter } from 'lodash';
+import { chain } from 'lodash';
 const useStyles = makeStyles({
   btn: {
     fontWeight: 'bold',
@@ -24,9 +24,21 @@ const useStyles = makeStyles({
     },
     marginBottom: 20,
   },
+  flexContainer: {
+    display: 'flex',
+    justifyContent: 'space-around',
+  },
+  filtersContainer: {
+    backgroundColor: '#f1f1f1',
+    width: '80%',
+    padding: 10,
+    margin: '20px 10%',
+  },
+  input: {
+    width: '90% !important',
+  },
 });
 export default function List(props) {
-
   const [entries, setEntries] = useState([]);
   const [entriesTotal, setEntriesTotal] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -34,15 +46,15 @@ export default function List(props) {
   const [descriptionText, setDescriptionText] = useState('');
   const [titleFilter, setTitleFilter] = useState('');
   const [httpsFilter, setHttpsFilter] = useState('');
-  const [corsFilter, setCorsFilter] = useState(null);
-  const [authFilter, setAuthFilter] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [corsFilter, setCorsFilter] = useState('');
+  const [corsOptions, setCorsOptions] = useState([]);
 
   const [filter, setFilter] = useState({
     description: '',
     category: '',
     https: null,
     cors: null,
-    auth: null,
     title: '',
   });
 
@@ -57,33 +69,46 @@ export default function List(props) {
   const classes = useStyles();
 
   useEffect(() => {
-    async function fetchCategories () {
+    async function fetchInitialData () {
       try {
         setLoading(true);
-        const categoriesResult = await getCategories();
-        const categoriesOptions = categoriesResult.map(item => {
-          return {
-            value: item,
-            label: item,
-          };
+        setPage(0);
+        const filterString = createFilterString();
+        const result = await getEntries(filterString);
+        setEntriesTotal(result.entries);
+        const corsOptionsValues = chain(result.entries).map('Cors').uniq().value();
+        const optionsForCors = corsOptionsValues.map(item => {
+          return { label: item, value: item };
         });
-        setCategories(categoriesOptions);
-      } catch (err) {
+        setCorsOptions(optionsForCors);
+        const categoryOptionsValues = chain(result.entries).map('Category').uniq().value();
+        const optionsForCategory = categoryOptionsValues.map(item => {
+          return { label: item, value: item };
+        });
+        setCategories(optionsForCategory);
+        
+        setCount(result.count);
+        setLoading(false);
         setSnackbar({
           open: true,
-          text: 'Error while trying to get categories',
+          text: 'Info loaded succesfully',
+          severity: 'success',
+        });
+        setPage(1);
+      } catch (err) {
+        setLoading(false);
+        setSnackbar({
+          open: true,
+          text: err,
           severity: 'error',
         });
-      } finally {
-        setLoading(false);
       }
     }
-    fetchCategories();
+    fetchInitialData();
   }, []);
 
   const createFilterString = () => {
-    const filterString = `?category=${filter.category}&description=${filter.description}&title=${filter.title}&https=${filter.https}`;
-    console.log(filterString);
+    const filterString = `?category=${filter.category}&cors=${filter.cors !== null ? filter.cors : ''}&description=${filter.description}&title=${filter.title}&https=${filter.https !== null ? filter.https : ''}`;
     return filterString;
   };
 
@@ -145,10 +170,6 @@ export default function List(props) {
     return <MuiAlert elevation={6} variant="filled" {...props} />;
   }
 
-  const handleChangeCategory = (item) => {
-    setCategorySelected(item);
-  };
-
   const applyFilters = () => {
     setFilter({
       ...filter,
@@ -156,6 +177,7 @@ export default function List(props) {
       title: titleFilter,
       category: categorySelected ? categorySelected.value.split(' ')[0] : '',
       https: httpsFilter,
+      cors: corsFilter ? corsFilter.value : '',
     });
   };
 
@@ -165,41 +187,66 @@ export default function List(props) {
         <title>Entries List</title>
       </Helmet>
       <h3>List</h3>
-      <h4>Filters</h4>
-      <div>
-        <Select
-          options={categories}
-          name="period-type"
-          menuPlacement="bottom"
-          menuPosition="fixed"
-          placeholder="Select a category"
-          value={categorySelected}
-          onChange={handleChangeCategory}
-        />
-      </div>
-      <div>
-        <Input
-          value={titleFilter}
-          placeholder="Filter by title"
-          onChange={(e) => { setTitleFilter(e.target.value) }}
-        />
-      </div>
-      <div>
-        <Input
-          value={descriptionText}
-          placeholder="Filter by description"
-          onChange={(e) => { setDescriptionText(e.target.value) }}
-        />
-      </div>
-      <div>
-        <label>Https: </label>
-        <Switch 
-          checked={httpsFilter}
-          onChange={(e) => setHttpsFilter(e.target.checked)}
-          inputProps={{ 'aria-label': 'controlled' }}
-        />
-      </div>
-      <div>
+      { showFilters &&
+        <div className={classes.filtersContainer}>
+          <h1>Filters</h1>
+          <div>
+            <Select
+              options={categories}
+              name="period-type"
+              menuPlacement="bottom"
+              menuPosition="fixed"
+              placeholder="Select a category"
+              className={classes.input}
+              value={categorySelected}
+              onChange={item => setCategorySelected(item)}
+            />
+          </div>
+          <div>
+            <Input
+              value={titleFilter}
+              placeholder="Filter by title"
+              onChange={(e) => { setTitleFilter(e.target.value) }}
+              className={classes.input}
+            />
+          </div>
+          <div>
+            <Input
+              value={descriptionText}
+              placeholder="Filter by description"
+              className={classes.input}
+              onChange={(e) => { setDescriptionText(e.target.value) }}
+            />
+          </div>
+          <div className={classes.flexContainer}>
+            <div>
+              <label>Https: </label>
+              <Switch 
+                checked={httpsFilter}
+                onChange={(e) => setHttpsFilter(e.target.checked)}
+                inputProps={{ 'aria-label': 'controlled' }}
+              />
+            </div>
+            <div>
+              <Select
+                options={corsOptions}
+                name="period-type"
+                menuPlacement="bottom"
+                menuPosition="fixed"
+                placeholder="CORS policy"
+                className={classes.input}
+                value={corsFilter}
+                onChange={item => setCorsFilter(item)}
+              />
+            </div>
+          </div>
+        </div>
+      }
+      
+      <div className={classes.flexContainer}>
+        <Button className={classes.btn} onClick={() => setShowFilters(!showFilters)}>
+          {showFilters ? 'Hide' : 'Show'} filters
+        </Button>
         <Button className={classes.btn} onClick={() => applyFilters()}>
           Apply filter
         </Button>
@@ -208,6 +255,7 @@ export default function List(props) {
           setTitleFilter('');
           setCategorySelected(null);
           setHttpsFilter('');
+          setCorsFilter(null);
           setFilter({
             category: '',
             description: '',
